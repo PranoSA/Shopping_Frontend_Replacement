@@ -1,16 +1,29 @@
-import React from 'react';
-import ReactDOM from 'react-dom/client';
-import './index.css';
-import App from './App';
-import reportWebVitals from './reportWebVitals';
+import * as React from "react";
+import { createRoot } from "react-dom/client";
+import {
+  createBrowserRouter,
+  RouterProvider,
+  Route,
+  Link,
+  BrowserRouter,
+} from "react-router-dom";
 
-const root = ReactDOM.createRoot(
-  document.getElementById('root') as HTMLElement
-);
-root.render(
-  <React.StrictMode>
+import App from './App'
+
+import reportWebVitals from "./reportWebVitals";
+
+import Keycloak from './Keycloak'
+import { ReactKeycloakProvider } from "@react-keycloak/web";
+
+
+
+
+createRoot(document.getElementById("root") as HTMLElement).render(
+  <ReactKeycloakProvider authClient={Keycloak} initOptions={{ checkLoginIframe: false }}>
+  <BrowserRouter>
     <App />
-  </React.StrictMode>
+  </BrowserRouter>
+  </ReactKeycloakProvider>
 );
 
 // If you want to start measuring performance in your app, pass a function

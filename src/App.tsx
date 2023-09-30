@@ -2,24 +2,41 @@ import React from 'react';
 import logo from './logo.svg';
 import './App.css';
 
+import Home from './pages/home'
+import Chat from './pages/chat'
+import {  Routes , Route} from 'react-router-dom';
+
+import AuthContext from './components/Keycloak'
+import Call from './pages/call';
+
+const client_id="shopping"
+const redirect_uri = "http://localhost:3000"
+
+
+
 function App() {
+
+
+
+  
+
   return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.tsx</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
-    </div>
+    <AuthContext>
+    <Routes>
+      
+      <Route path="group" >
+
+        <Route path=":groupid">
+          <Route path="chat" element={<Chat starter={6} />} />
+          <Route path="group" element={<Chat starter={7} />} />
+          <Route path="call" element ={<Call />} />
+          <Route path="" element={<Chat starter={5} />} />
+        </Route>
+        <Route path="" element={<Home />} />
+      </Route>
+      <Route path = "" element={<Call />}/>
+    </Routes>
+    </AuthContext>
   );
 }
 
