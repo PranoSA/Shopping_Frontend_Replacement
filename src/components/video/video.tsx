@@ -3,9 +3,10 @@ import { useEffect, useRef, useState } from "react";
 type Props = {
     stream : MediaStream,
     muted?: boolean
+    id: string
 }
 
-const Video = ({ stream, muted }: Props) => {
+const Video = ({ stream, muted, id}: Props) => {
     const ref = useRef<HTMLVideoElement>(null);
     const [isMuted, setIsMuted] = useState<boolean>(false);
   
@@ -16,7 +17,7 @@ const Video = ({ stream, muted }: Props) => {
   
     return (
       <div>
-        <video ref={ref} muted={isMuted} autoPlay />
+        <video ref={ref} muted={isMuted} id={id} autoPlay />
       </div>
     );
   };

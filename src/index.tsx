@@ -15,7 +15,7 @@ import reportWebVitals from "./reportWebVitals";
 import Keycloak from './Keycloak'
 import { ReactKeycloakProvider } from "@react-keycloak/web";
 
-
+//initKeycloak();
 
 
 createRoot(document.getElementById("root") as HTMLElement).render(

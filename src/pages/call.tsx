@@ -3,8 +3,20 @@ import { useParams } from 'react-router-dom';
 import '../components/video/video.css'
 import { Socket } from 'socket.io-client';
 import Video from '../components/video/video'
-
+import { ServerToClientEvents, ConnectionSuccess,  NewProducer, ProducerClosed} from '../types/ServerToClientEvents';
+import { ClientToServerEvents,   
+   joinRoom, 
+  createWebRtcCallbackArguments, 
+  TransportProduceCallbackParams,
+   createWebRtcClient,
+    transportconnect, 
+     ProducerResponse } from '../types/ClientToServerEvents';
 //Start Call By Default For Now ...
+import { useKeycloak } from '@react-keycloak/web';
+import { Transport } from 'mediasoup-client/lib/Transport';
+import { Producer } from 'mediasoup-client/lib/Producer';
+//import keycloak from '../Keycloak';
+
 
 const io = require('socket.io-client')
 const mediasoupClient = require('mediasoup-client')
@@ -16,16 +28,13 @@ const mediasoupClient = require('mediasoup-client')
 
 
 
-
-
 let device:any
 let rtpCapabilities:any
-let producerTransport:any
+let producerTransport:Transport
 let consumerTransports:any = []
-let audioProducer:any
-let videoProducer:any
-let consumer:any 
-let isProducer = false
+let audioProducer:Producer
+let videoProducer:Producer
+
 
 // https://mediasoup.org/documentation/v3/mediasoup-client/api/#ProducerOptions
 // https://mediasoup.org/documentation/v3/mediasoup-client/api/#transport-produce
@@ -58,114 +67,51 @@ let audioParams:any;
 let videoParams:any = { params };
 let consumingTransports:any = [];
 
-type ConnectionSuccess = {
-    socketId : string
-}
 
-type joinRoom = {
-    roomName : string 
-}
 
-interface ServerToClientEvents {
-    /*
-        1. Connected To the Server Successfully 
-
-        2. New Producer -> Start Signaling For New Conusmer Tranport TO Build One
-
-        3. Producer Closed -> Get the Consumer Transport To CLose 
-    */
-    connectionsuccess: (a:ConnectionSuccess) => void; 
-    newproducer:(a:any, calllback:(e:any)=>void)=>void; 
-    producerclosed:any 
-  }
-  
  
-  
-  interface ClientToServerEvents {
-
-    /*
-        1. Join Room -> 
-
-        2. Create WebRTC Transport (Do This once for Producer When Load Page), 
-        and one for every "newproducer" event
-
-        3. Transport Produce ->
-        After Calling createWebRTCTransport on page load if you are a producer, 
-        Then Generating a WebRTC Producer Transport on The Client,
-        Call transport produce to send over parameters for RTP
-
-        Then a producer ID will be generated on the server that identifies the Producer ID transport in the room,
-        Servers Will Then Use this to connect to 
-
-        4. Transport Recv Connect -> 
-        
-        For each producer, a consumer transport is created, which is identified by the consumer ID and a corresponding producer ID
-
-
-        This is called for all of the producers upon load and new signalled producers
-        
-
-
-        5. Consume ->
-
-        Create Consumer Based on RTP Capabilities and producer and consumer id 
-        for mapping
-
-
-        6. consumerresume -> 
-
-
-
-
-        7. Get Producers -> 
-
-        Upon Joining A Room, Get all the Producers Currently In The Room 
-
-    */
-    joinRoom: (a:joinRoom, callback:(e:any) => void) => void;
-    createWebRtcTransport:(a:createWebRtcClient, callback:(e:createWebRtcCallbackArgument) => void)=>void;
-    transportconnect:(a:transportconnect) => void; 
-    transportproduce:(a:any, b:any) => void;
-    transportrecvconnect:(a:any) => void;
-    consume:(a:any, callback:(e:any)=>void ) => void;
-    consumerresume:(a:any)=>void;
-    getProducers:any
-}   
-  
-
-type transportconnect = {
-    dtlsParameters: any 
-}
-
-
-
-type createWebRtcClient = {
-    consumer: boolean 
-}
-
-type createWebRtcCallbackArgument = {
-    params:any 
-}
-
 
 export type WebRTCUser = {
   id: string;
   stream: MediaStream;
 };
 
+let testgroup= "96851c45-aaf1-4960-a49a-48e9fcb24a1c"
+
+
+
+// Because A Transport Even if Know Stream
+type Streamer = {
+  socketid? : string  //Should This Uniquely Identify ??
+  transportid? : string 
+  userid : string 
+  username : string 
+  email : string 
+  videoStream? : MediaStream
+  audioStream? : MediaStream
+}
+
+
+
 const Call:React.FC = () => {
     let {groupid} = useParams();
 
-    const socketRef = useRef<Socket<ServerToClientEvents, ClientToServerEvents>>(io.connect("http://localhost:3001/sfu"));
-    //const socktRef = useRef<SocketIOC
+    const socketRef = useRef<Socket<ServerToClientEvents, ClientToServerEvents>>();
 
-    const roomName = groupid||"Default"
+
+    const roomName = testgroup
 
     const localVideoRef = useRef<HTMLVideoElement>(null);
 
     const receivePCsRef = useRef<{ [socketId: string]: RTCPeerConnection }>({});
 
     const [users, setUsers] = useState<Array<WebRTCUser>>([]);
+
+   const { keycloak } = useKeycloak();
+
+
+
+
 
     //const socket: Socket<ServerToClientEvents, ClientToServerEvents> = io.connect("http://localhost:3001/mediasoup");
 
@@ -176,14 +122,90 @@ const Call:React.FC = () => {
 
   useEffect(() => {
 
-        socketRef.current.close();
-        socketRef.current = io.connect("http://localhost:3001/sfu");
+    console.log("LoadingCHat")
+
+    if(socketRef.current){
+      socketRef.current.close();
+      console.log("Refresh Caused Reload")
+    }
+
+    async function InitializeSocket() {
+      try {
+        console.log(keycloak.isTokenExpired())
+        const ref = await keycloak.updateToken(5)
+        .catch(() => {
+          if (keycloak.isTokenExpired()){
+            console.log("Not Authenticated")
+            throw Error();
+          }
+        })
+      }
+      catch(e){
+        if(!keycloak.authenticated){
+          console.log(keycloak.idToken)
+          console.log(localStorage.getItem("id_token"))
+          keycloak.login();
+        }
+        console.log("ArleadyAUthenticated")
+        return 
+      }
+
+      console.log(localStorage.getItem("id_token"));
+
+    
+
+       console.log(keycloak.isTokenExpired())
+
+        socketRef.current = io.connect("http://localhost:3001/sfu", {
+          auth: (cb: (arg0: { token: string; }) => void) => {
+            cb({
+              token: localStorage.getItem("id_token")||"",
+            });
+          }
+        });
+
+        if(!socketRef.current){
+          console.log("Failed to Connect")
+          return 
+        }
+        
+
+          socketRef.current.on('producerclosed', ({ remoteProducerId }:any) => {
+            // server notification is received when a producer is closed
+            // we need to close the client-side consumer and associated transport
+            const producerToClose = consumerTransports.find((transportData:any) => transportData.producerId === remoteProducerId)
+            producerToClose.consumerTransport.close()
+            producerToClose.consumer.close()
+          
+            // remove the consumer transport from the list
+            consumerTransports = consumerTransports.filter((transportData:any) => transportData.producerId !== remoteProducerId)
+          
+            // remove the video div element
+            //videoContainer.removeChild(document.getElementById(`td-${remoteProducerId}`))
+            if (!receivePCsRef.current[remoteProducerId]) return;
+            receivePCsRef.current[remoteProducerId].close();
+            delete receivePCsRef.current[remoteProducerId];
+          })
+
+      // server informs the client of a new producer just joined
+          socketRef.current.on('newproducer', ({ producerId }) =>{
+            console.log("New Producer")
+
+            console.log(producerId);
+            signalNewConsumerTransport(producerId)
+          })
+
 
       //@ts-ignore
         socketRef.current.on('connectionsuccess', ({ socketId }:any) => {
+          console.log("COnnectionSuccess")
           console.log(socketId)
           getLocalStream()
        })
+      
+    }
+    InitializeSocket()
+
       },[])
         //getLocalStream();
     
@@ -194,7 +216,7 @@ const Call:React.FC = () => {
 
 
     const streamSuccess = (stream:any) => {
-      console.timeLog("Getting Local Stream")
+      console.log("Getting Local Stream")
         if(localVideoRef.current) localVideoRef.current.srcObject = stream 
 
         //localVideo.srcObject = stream
@@ -207,6 +229,7 @@ const Call:React.FC = () => {
     }
 
     const joinRoom = () => {
+      if(socketRef.current){
         socketRef.current.emit('joinRoom', { roomName }, (data) => {
           console.log(`Router RTP Capabilities... ${data.rtpCapabilities}`)
           // we assign to local variable and will be used when
@@ -216,6 +239,10 @@ const Call:React.FC = () => {
           // once we have rtpCapabilities from the Router, create Device
           createDevice()
         })
+        }
+        else {
+          console.log("Not Emitting Join Room")
+        }
       }
 
       const getLocalStream = () => {
@@ -224,11 +251,11 @@ const Call:React.FC = () => {
           audio: true,
           video: {
             width: {
-              min: 640,
+              min: 80,
               max: 1920,
             },
             height: {
-              min: 400,
+              min: 50,
               max: 1080,
             }
           }
@@ -267,7 +294,13 @@ const createDevice = async () => {
 
   const createSendTransport = () => {
     console.log("Creating Send Transport")
+
     const socket = socketRef.current; 
+
+    if(!socketRef.current || !socket){
+      console.log("Made Send Transport")
+      return 
+    }
     // see server's socket.on('createWebRtcTransport', sender?, ...)
     // this is a call from Producer, so sender = true
     socket.emit('createWebRtcTransport', { consumer: false }, ({ params }) => {
@@ -325,6 +358,7 @@ const createDevice = async () => {
             if (producersExist) getProducers()
           })
         } catch (error) {
+          console.log("Why ERror")
           errback(error)
         }
       })
@@ -341,6 +375,10 @@ const createDevice = async () => {
     
     audioProducer = await producerTransport.produce(audioParams);
     videoProducer = await producerTransport.produce(videoParams);
+
+    audioProducer.on('@getstats', (stats) => {console.log("stats" + stats)})
+
+    
   
     audioProducer.on('trackended', () => {
       console.log('audio track ended')
@@ -373,6 +411,10 @@ const createDevice = async () => {
     //check if we are already consuming the remoteProducerId
     const socket = socketRef.current 
 
+    if(!socket){
+      return 
+    }
+
     if (consumingTransports.includes(remoteProducerId)) return;
     consumingTransports.push(remoteProducerId);
   
@@ -389,6 +431,8 @@ const createDevice = async () => {
       try {
         consumerTransport = device.createRecvTransport(params)
       } catch (error) {
+        console.log(typeof(error))
+        console.log("Failed To Create Recv Device")
         // exceptions: 
         // {InvalidStateError} if not loaded
         // {TypeError} if wrong arguments.
@@ -399,12 +443,19 @@ const createDevice = async () => {
       consumerTransport.on('connect', async ({ dtlsParameters }:any, callback:any, errback:any) => {
         console.log("Consuming ")
         try {
+
+          if(!socket || !socketRef.current){
+            console.log("Not Socket Or Not Socket Ref")
+            return 
+          }
           // Signal local DTLS parameters to the server side transport
           // see server's socket.on('transport-recv-connect', ...)
           await socket.emit('transportrecvconnect', {
             dtlsParameters,
             serverConsumerTransportId: params.id,
           })
+
+          console.log("TransportRecvConnect")
   
           // Tell the transport that parameters were transmitted.
           callback()
@@ -415,17 +466,25 @@ const createDevice = async () => {
           errback(error)
         }
       })
-  
-      connectRecvTransport(consumerTransport, remoteProducerId, params.id)
+      try {
+        connectRecvTransport(consumerTransport, remoteProducerId, params.id)
+      }
+      catch(e){
+        console.log("Connect Recv Transport Failed")
+      }
     })
   }
 
-  const connectRecvTransport = async (consumerTransport:any, remoteProducerId:any, serverConsumerTransportId:any) => {
+  const connectRecvTransport = async (consumerTransport:Transport, remoteProducerId:string, serverConsumerTransportId:string) => {
     // for consumer, we need to tell the server first
     // to create a consumer based on the rtpCapabilities and consume
     // if the router can consume, it will send back a set of params as below
 
     const socket = socketRef.current 
+
+    if(!socket){
+      return 
+    }
 
     await socket.emit('consume', {
       rtpCapabilities: device.rtpCapabilities,
@@ -438,6 +497,7 @@ const createDevice = async () => {
       }
   
       console.log(`Consumer Params ${params}`)
+      console.log(params);
       // then consume with the local consumer transport
       // which creates a consumer
       const consumer = await consumerTransport.consume({
@@ -446,6 +506,11 @@ const createDevice = async () => {
         kind: params.kind,
         rtpParameters: params.rtpParameters
       })
+      
+      console.log(consumer.producerId)
+      console.log(consumer.id)
+      console.log(params.kind)
+      
   
       consumerTransports = [
         ...consumerTransports,
@@ -460,7 +525,12 @@ const createDevice = async () => {
       // create a new div element for the new consumer media
       const newElem = document.createElement('div')
       newElem.setAttribute('id', `td-${remoteProducerId}`)
+
+      const elem =document.getElementById("video-container")
+      
   
+      console.log("Creating Element For")
+      console.log(remoteProducerId)
 
       console.log(`Creating New User, Remote Producer Id ${remoteProducerId}`)
       if (params.kind === 'audio') {
@@ -473,24 +543,51 @@ const createDevice = async () => {
       }
 
 
-  
       
+      const newVideo = document.createElement("video")
+      elem?.appendChild(newVideo)
+
+
+  
+      elem?.appendChild(newElem)
   
       // destructure and retrieve the video track from the producer
       const { track } = consumer
+
+      newVideo.srcObject = new MediaStream([track])
+      
+      console.log(track);
+
+      
       
       setUsers([...users, {id:remoteProducerId, stream : new MediaStream([track])}])
+
+      console.log([...users, {id:remoteProducerId, stream : new MediaStream([track])}])
+
+      console.log(users)
       //@ts-ignore
-      if(document.getElementById(remoteProducerId)?.srcObject){
+      if(document.getElementById(remoteProducerId)){
+
+
+        console.log("Found SourceObject")
+
         //@ts-ignore
       document.getElementById(remoteProducerId).srcObject = new MediaStream([track])
       }
+      else {
+        console.log("Did Not Find Source Object")
+      }
+  
 
-            //videoContainer.appendChild(newElem)
-            if(receivePCsRef.current){
-                //receivePCsRef.current[remoteProducerId] = track 
-                receivePCsRef.current = { ...receivePCsRef.current, [remoteProducerId]: track };
-              }
+          //videoContainer.appendChild(newElem)
+          /*if(receivePCsRef.current){
+              //receivePCsRef.current[remoteProducerId] = track 
+              receivePCsRef.current = { ...receivePCsRef.current, [remoteProducerId]: track };
+            }
+            */
+      console.log("consumeresume")
+      console.log(track.kind)
+      //track.removeEventListener()
   
       // the server consumer started with media paused
       // so we need to inform the server to resume
@@ -498,40 +595,22 @@ const createDevice = async () => {
     })
   }
 
-  socketRef.current.on('producerclosed', ({ remoteProducerId }:any) => {
-    // server notification is received when a producer is closed
-    // we need to close the client-side consumer and associated transport
-    const producerToClose = consumerTransports.find((transportData:any) => transportData.producerId === remoteProducerId)
-    producerToClose.consumerTransport.close()
-    producerToClose.consumer.close()
-  
-    // remove the consumer transport from the list
-    consumerTransports = consumerTransports.filter((transportData:any) => transportData.producerId !== remoteProducerId)
-  
-    // remove the video div element
-    //videoContainer.removeChild(document.getElementById(`td-${remoteProducerId}`))
-    if (!receivePCsRef.current[remoteProducerId]) return;
-    receivePCsRef.current[remoteProducerId].close();
-    delete receivePCsRef.current[remoteProducerId];
-  })
 
-  // server informs the client of a new producer just joined
-socketRef.current.on('newproducer', ({ producerId }) =>{
-  console.log("New Producer")
-
-  console.log(producerId);
-  signalNewConsumerTransport(producerId)
-})
 
 
 const getProducers = () => {
   const socket = socketRef.current 
-  socket.emit('getProducers', (producerIds:any) => {
+
+  if(!socket){
+    return 
+  }
+
+  socket.emit('getProducers', (producerIds) => {
     console.log(producerIds)
+
     // for each of the producer create a consumer
     // producerIds.forEach(id => signalNewConsumerTransport(id))
-    producerIds.forEach(signalNewConsumerTransport)
-    
+    producerIds.forEach(v => signalNewConsumerTransport(v.producerId))    
   })
 }
 
@@ -540,11 +619,14 @@ const getProducers = () => {
 
     return(
         <div id="video">
+
+          <div id="video-container"></div>
+
         <table className="mainTable">
             <tbody>
                 <tr>
                     <td className="localColumn">
-                        <video ref={localVideoRef} id="localVideo" autoPlay className="video" muted ></video>
+                        
                     </td>
                     <td className="remoteColumn">
                         <div id="videoContainer"></div>
@@ -563,7 +645,7 @@ const getProducers = () => {
             </tbody>
         </table>
         {users.map((user, index) => (
-        <Video key={index} stream={user.stream} />
+        <Video key={index} stream={user.stream} id={user.id} />
       ))}
     </div>
     )

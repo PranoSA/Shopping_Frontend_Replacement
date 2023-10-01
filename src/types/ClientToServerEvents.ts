@@ -76,7 +76,7 @@ interface ClientToServerEvents {
     transportrecvconnect:(a:any) => void;
     consume:(a:any, callback:(e:any)=>void ) => void;
     consumerresume:(a:ConsumeResumeParams)=>void;
-    getProducers:(a:any, callback:(e:ProducerResponse[]) => void) => void;
+    getProducers:(callback:(e:ProducerResponse[]) => void) => void;
   }   
 
 
@@ -101,7 +101,8 @@ interface ClientToServerEvents {
           id: string
           iceParameters: IceParameters
           iceCandidates: IceCandidate[]
-          dtlsParameters: DtlsParameters 
+          dtlsParameters: DtlsParameters ,
+          error?:string 
       }
     }
   
@@ -130,6 +131,7 @@ interface ClientToServerEvents {
           kind:MediaKind,
           rtpParameters: RtpParameters,
           serverConsumerId : string,
+          error?:string 
       }
   }
   
