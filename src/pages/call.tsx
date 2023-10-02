@@ -16,6 +16,8 @@ import { useKeycloak } from '@react-keycloak/web';
 import { Transport } from 'mediasoup-client/lib/Transport';
 import { Producer } from 'mediasoup-client/lib/Producer';
 //import keycloak from '../Keycloak';
+import { Consumer, MediaKind,} from 'mediasoup-client/lib/types';
+import { StreamRounded } from '@mui/icons-material';
 
 
 const io = require('socket.io-client')
@@ -26,12 +28,17 @@ const mediasoupClient = require('mediasoup-client')
 
 //const socket = io("/mediasoup")
 
-
+type ConsumerTransportType = {
+  consumerTransport : Transport,
+  serverConsumerTransportId: string,
+  producerId: string,
+  consumer : Consumer,
+}
 
 let device:any
 let rtpCapabilities:any
 let producerTransport:Transport
-let consumerTransports:any = []
+let consumerTransports:ConsumerTransportType[] = []
 let audioProducer:Producer
 let videoProducer:Producer
 
@@ -81,9 +88,7 @@ let testgroup= "96851c45-aaf1-4960-a49a-48e9fcb24a1c"
 
 
 // Because A Transport Even if Know Stream
-type Streamer = {
-  socketid? : string  //Should This Uniquely Identify ??
-  transportid? : string 
+type Streamer = { //Used To Uniquely Identify 
   userid : string 
   username : string 
   email : string 
@@ -91,6 +96,9 @@ type Streamer = {
   audioStream? : MediaStream
 }
 
+type Streamers = {
+  [key:string]:Streamer
+}
 
 
 const Call:React.FC = () => {
@@ -109,6 +117,19 @@ const Call:React.FC = () => {
 
    const { keycloak } = useKeycloak();
 
+   const [producers, setProducers] = useState<Streamers>({});
+
+   type TransportInfo = {
+    userid : string 
+    email : string 
+    username : string 
+   }
+
+   type TransportInfos = {
+    [key:string]:TransportInfo
+   }
+
+   const transport_info : TransportInfos = {}
 
 
 
@@ -170,12 +191,24 @@ const Call:React.FC = () => {
         }
         
 
-          socketRef.current.on('producerclosed', ({ remoteProducerId }:any) => {
+          socketRef.current.on('producerclosed', ({ producerId, transportId }) => {
+
+            const remoteProducerId = producerId
             // server notification is received when a producer is closed
             // we need to close the client-side consumer and associated transport
             const producerToClose = consumerTransports.find((transportData:any) => transportData.producerId === remoteProducerId)
-            producerToClose.consumerTransport.close()
-            producerToClose.consumer.close()
+
+            console.log("Producer Closed");
+
+            delete producers[transportId]
+
+            setProducers({...producers})
+
+            if(producerToClose){
+
+              producerToClose.consumerTransport.close()
+              producerToClose.consumer.close()
+            }
           
             // remove the consumer transport from the list
             consumerTransports = consumerTransports.filter((transportData:any) => transportData.producerId !== remoteProducerId)
@@ -188,11 +221,18 @@ const Call:React.FC = () => {
           })
 
       // server informs the client of a new producer just joined
-          socketRef.current.on('newproducer', ({ producerId }) =>{
+          socketRef.current.on('newproducer', ({ producerId, transportid, email, username, userid }) =>{
             console.log("New Producer")
+            
+            transport_info[transportid] = {
+              email,
+              username,
+              userid,
+
+            }
 
             console.log(producerId);
-            signalNewConsumerTransport(producerId)
+            signalNewConsumerTransport(producerId,transportid)
           })
 
 
@@ -405,7 +445,7 @@ const createDevice = async () => {
     })
   }
 
-  const signalNewConsumerTransport = async (remoteProducerId:any) => {
+  const signalNewConsumerTransport = async (remoteProducerId:string, remoteTransportId:string) => {
 
     console.log(`Signaling to Producer ${remoteProducerId}`)
     //check if we are already consuming the remoteProducerId
@@ -467,7 +507,8 @@ const createDevice = async () => {
         }
       })
       try {
-        connectRecvTransport(consumerTransport, remoteProducerId, params.id)
+        connectRecvTransport(consumerTransport, remoteProducerId, params.id, remoteTransportId)
+        
       }
       catch(e){
         console.log("Connect Recv Transport Failed")
@@ -475,7 +516,7 @@ const createDevice = async () => {
     })
   }
 
-  const connectRecvTransport = async (consumerTransport:Transport, remoteProducerId:string, serverConsumerTransportId:string) => {
+  const connectRecvTransport = async (consumerTransport:Transport, remoteProducerId:string, serverConsumerTransportId:string, remoteTransportId:string) => {
     // for consumer, we need to tell the server first
     // to create a consumer based on the rtpCapabilities and consume
     // if the router can consume, it will send back a set of params as below
@@ -548,6 +589,7 @@ const createDevice = async () => {
       elem?.appendChild(newVideo)
 
 
+
   
       elem?.appendChild(newElem)
   
@@ -558,7 +600,41 @@ const createDevice = async () => {
       
       console.log(track);
 
+      if(producers[remoteTransportId]){
+
+      }
+
+      else {
+        console.log("New Transport")
+        
+        producers[remoteTransportId] = {
+          userid : transport_info[remoteTransportId].userid ,
+          username :  transport_info[remoteTransportId].username,
+          email :  transport_info[remoteTransportId].email,
+          videoStream: new MediaStream()
+        }
+      }
+
+
+      console.log(transport_info)
+      producers[remoteTransportId].videoStream?.addTrack(track)
+
+
+
       
+      //ignore this for now... just add to the video stream 
+      
+      /*if(params.MediaKind === "audio"){
+
+      }
+      if(params.MediaKind === "video"){
+        producers[remoteProducerId].videoStream = new MediaStream([track]) 
+        
+        console.log(producers)
+        setProducers({...producers})
+      }*/
+
+      console.log(producers)
       
       setUsers([...users, {id:remoteProducerId, stream : new MediaStream([track])}])
 
@@ -605,21 +681,57 @@ const getProducers = () => {
     return 
   }
 
-  socket.emit('getProducers', (producerIds) => {
+
+  socket.emit('getProducers', (producerIds:ProducerResponse[]) => {
     console.log(producerIds)
+    
+    
+    
+
 
     // for each of the producer create a consumer
     // producerIds.forEach(id => signalNewConsumerTransport(id))
-    producerIds.forEach(v => signalNewConsumerTransport(v.producerId))    
+    producerIds.forEach(v => {
+
+      //console.log(v)
+      transport_info[v.transportId] = {
+        email : v.email, 
+        username : v.username,
+        userid : v.userid
+      }
+      
+
+      signalNewConsumerTransport(v.producerId, v.transportId)
+    })    
   })
 }
 
+const videoElements  = ():React.ReactNode => {
+
+  type RenderList = {
+    streamer : Streamer,
+    id : string,
+  }
+
+  var RenderStreamerList:RenderList[] = []
+
+
+  console.log("Render Stream List")
+  for (var key in producers){
+    console.log(key)
+      RenderStreamerList.push({
+        streamer : producers[key],
+        id : key,
+      })
+  }
+
+  return RenderStreamerList.map((v) => {
+    return <Video id={v.id} stream={v.streamer.videoStream||new MediaStream()} email={v.streamer.email} userid={v.streamer.userid} username={v.streamer.username}></Video>
+  })
+
+}
       
-
-
-    return(
-        <div id="video">
-
+/*
           <div id="video-container"></div>
 
         <table className="mainTable">
@@ -647,6 +759,14 @@ const getProducers = () => {
         {users.map((user, index) => (
         <Video key={index} stream={user.stream} id={user.id} />
       ))}
+      */
+
+
+    return(
+        <div id="video">
+
+       <p> REAALLL SHIT </p>
+    {videoElements()}
     </div>
     )
 }

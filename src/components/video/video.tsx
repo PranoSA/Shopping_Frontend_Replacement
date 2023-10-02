@@ -4,9 +4,12 @@ type Props = {
     stream : MediaStream,
     muted?: boolean
     id: string
+    email : string 
+    username : string 
+    userid : string 
 }
 
-const Video = ({ stream, muted, id}: Props) => {
+const Video = ({ stream, muted, id, email, username, userid }: Props) => {
     const ref = useRef<HTMLVideoElement>(null);
     const [isMuted, setIsMuted] = useState<boolean>(false);
   
@@ -17,6 +20,7 @@ const Video = ({ stream, muted, id}: Props) => {
   
     return (
       <div>
+        <p>{id} : {userid} : {username} : {email}</p>
         <video ref={ref} muted={isMuted} id={id} autoPlay />
       </div>
     );

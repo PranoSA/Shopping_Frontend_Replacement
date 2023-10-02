@@ -1,6 +1,6 @@
-type NewProducer = {producerId:string, userid:string, username:string, email:string}
+type NewProducer = {transportid: string, producerId:string, userid:string, username:string, email:string}
 
-type ProducerClosed = {producerId:string}
+type ProducerClosed = {producerId:string, transportId : string}
 
 type ConnectionSuccess = {
     socketId : string
